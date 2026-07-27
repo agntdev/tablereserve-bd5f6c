@@ -49,6 +49,7 @@ interface Reminder {
   at: number; // epoch ms
   chatId: number | string;
   text: string;
+  replyMarkup?: unknown;
 }
 
 /**
@@ -93,12 +94,13 @@ export async function remindAt(
   chatId: number | string,
   whenEpochMs: number,
   text: string,
+  replyMarkup?: unknown,
 ): Promise<void> {
   try {
     const stub = env.CHAT_DO.get(env.CHAT_DO.idFromName("chat:" + chatId));
     await stub.fetch("https://do/remind", {
       method: "POST",
-      body: JSON.stringify({ at: whenEpochMs, chatId, text } satisfies Reminder),
+      body: JSON.stringify({ at: whenEpochMs, chatId, text, replyMarkup } satisfies Reminder),
     });
   } catch {
     /* best-effort: a reminder we couldn't schedule must not break the reply */
@@ -154,6 +156,21 @@ export class ChatDO {
       return new Response(null, { status: 204 });
     }
 
+    // Domain records use an explicit key supplied by the application. This is
+    // intentionally point-addressed: no key scans are needed to find bookings.
+    if (url.pathname === "/domain") {
+      const key = url.searchParams.get("key");
+      if (!key) return new Response("missing key", { status: 400 });
+      if (request.method === "GET") {
+        const value = await this.state.storage.get<unknown>("domain:" + key);
+        return value === undefined ? new Response(null, { status: 204 }) : Response.json(value);
+      }
+      if (request.method === "PUT") {
+        await this.state.storage.put("domain:" + key, await request.json());
+        return new Response(null, { status: 204 });
+      }
+    }
+
     return new Response("not found", { status: 404 });
   }
 
@@ -165,7 +182,11 @@ export class ChatDO {
     const due = list.filter((r) => r.at <= now);
     const rest = list.filter((r) => r.at > now);
     for (const r of due) {
-      await tg(this.env.BOT_TOKEN, "sendMessage", { chat_id: r.chatId, text: r.text });
+      try {
+        await tg(this.env.BOT_TOKEN, "sendMessage", { chat_id: r.chatId, text: r.text, ...(r.replyMarkup ? { reply_markup: r.replyMarkup } : {}) });
+      } catch {
+        // A guest may have blocked the bot. Continue delivering other reminders.
+      }
     }
     await this.state.storage.put("reminders", rest);
     await this.rearm(rest);
