@@ -1,13 +1,13 @@
 [
   {
-    "name": "Manage Booking",
+    "name": "Manage booking without saved configuration",
     "steps": [
       {
         "expect": [
           {
-            "method": "sendMessage",
+              "method": "editMessageText",
             "payload": {
-              "text": "Access existing booking actions (reschedule/cancel)"
+              "text": "Reservations aren’t set up yet. Ask the restaurant owner to finish the table configuration."
             }
           }
         ],
